@@ -5,9 +5,6 @@ import (
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/genjidb/genji/document"
-	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
-
 	rpc "go.amplifyedge.org/sys-share-v2/sys-account/service/go/rpc/v2"
 	sharedConfig "go.amplifyedge.org/sys-share-v2/sys-core/service/config"
 	coresvc "go.amplifyedge.org/sys-v2/sys-core/service/go/pkg/coredb"
@@ -60,7 +57,7 @@ func (p *Project) ToRpcProject(org *rpc.Org, logo []byte) (*rpc.Project, error) 
 		Name:           p.Name,
 		LogoResourceId: p.LogoResourceId,
 		Logo:           logo,
-		CreatedAt:      timestamppb.New(time.Unix(p.CreatedAt, 0)),
+		CreatedAt:      sharedConfig.UnixToUtcTS(p.CreatedAt),
 		CreatorId:      p.AccountId,
 		OrgId:          p.OrgId,
 		Org:            porg,

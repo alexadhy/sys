@@ -13,6 +13,7 @@ import (
 )
 
 func (ad *SysAccountRepo) getAccountAndRole(ctx context.Context, id, email string) (*rpc.Account, error) {
+	var super *rpc.Account
 	queryParams := map[string]interface{}{}
 	if id != "" {
 		queryParams["id"] = id
@@ -22,7 +23,14 @@ func (ad *SysAccountRepo) getAccountAndRole(ctx context.Context, id, email strin
 	}
 	acc, err := ad.store.GetAccount(&coredb.QueryParams{Params: queryParams})
 	if err != nil {
-		super, err := ad.superDao.Get(ctx, email)
+		var param string
+		if id != "" {
+			param = id
+		}
+		if email != "" {
+			param = email
+		}
+		super, err = ad.superDao.Get(ctx, param)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "cannot find user account: %v", sharedAuth.Error{Reason: sharedAuth.ErrAccountNotFound})
 		}

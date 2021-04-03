@@ -2,13 +2,10 @@ package dao
 
 import (
 	"fmt"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/VictoriaMetrics/metrics"
 	"github.com/genjidb/genji/document"
 	"go.amplifyedge.org/sys-v2/sys-account/service/go/pkg/telemetry"
-	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
-
-	sq "github.com/Masterminds/squirrel"
 
 	utilities "go.amplifyedge.org/sys-share-v2/sys-core/service/config"
 
@@ -128,21 +125,21 @@ func (a *AccountDB) FromRpcAccount(account *accountRpc.Account) (*Account, error
 }
 
 func (a *Account) ToRpcAccount(roles []*accountRpc.UserRoles, avatar []byte) (*accountRpc.Account, error) {
-	createdAt := time.Unix(a.CreatedAt, 0)
-	updatedAt := time.Unix(a.UpdatedAt, 0)
-	lastLogin := time.Unix(a.LastLogin, 0)
 	avt := avatar
 	if avt == nil {
 		avt = []byte{}
 	}
+	c := utilities.UnixToUtcTS(a.CreatedAt)
+	u := utilities.UnixToUtcTS(a.UpdatedAt)
+	l := utilities.UnixToUtcTS(a.LastLogin)
 	return &accountRpc.Account{
 		Id:               a.ID,
 		Email:            a.Email,
 		Password:         a.Password,
 		Roles:            roles,
-		CreatedAt:        timestamppb.New(createdAt),
-		UpdatedAt:        timestamppb.New(updatedAt),
-		LastLogin:        timestamppb.New(lastLogin),
+		CreatedAt:        c,
+		UpdatedAt:        u,
+		LastLogin:        l,
 		Disabled:         a.Disabled,
 		Verified:         a.Verified,
 		AvatarResourceId: a.AvatarResourceId,
@@ -315,8 +312,9 @@ func (a *AccountDB) insertLoginAttempt(originIp string, columns []string, values
 }
 
 func (a *AccountDB) updateLoginAttempt(originIp string, requestMap map[string]interface{}) (*LoginAttempt, error) {
-	stmt, args, err := sq.Update(LoginAttemptsTableName).
-		SetMap(requestMap).ToSql()
+	email := requestMap["account_email"]
+	delete(requestMap, "account_email")
+	stmt, args, err := sq.Update(LoginAttemptsTableName).SetMap(requestMap).Where(sq.Eq{"account_email": email}).ToSql()
 	if err != nil {
 		return nil, err
 	}

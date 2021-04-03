@@ -115,7 +115,7 @@ func (ad *SysAccountRepo) ListOrg(ctx context.Context, in *rpc.ListRequest) (*rp
 	var err error
 	filtersJson := map[string]interface{}{}
 	if err = sharedConfig.UnmarshalJson(in.GetFilters(), &filtersJson); err != nil {
-		return nil, err
+		filtersJson = map[string]interface{}{}
 	}
 	filter := &coresvc.QueryParams{Params: filtersJson}
 	if in.IsDescending {
