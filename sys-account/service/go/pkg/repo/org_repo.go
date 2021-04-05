@@ -155,7 +155,7 @@ func (ad *SysAccountRepo) ListNonSubscribedOrgs(ctx context.Context, in *rpc.Lis
 	var err error
 	filtersJson := map[string]interface{}{}
 	if err = sharedConfig.UnmarshalJson(in.GetFilters(), &filtersJson); err != nil {
-		return nil, err
+		filtersJson = map[string]interface{}{}
 	}
 	filter := &coresvc.QueryParams{Params: filtersJson}
 	if in.IsDescending {
