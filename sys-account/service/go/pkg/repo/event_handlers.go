@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	utilities "go.amplifyedge.org/sys-share-v2/sys-core/service/config"
 	coreRpc "go.amplifyedge.org/sys-share-v2/sys-core/service/go/rpc/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -228,7 +229,9 @@ func (ad *SysAccountRepo) onCheckAllowSurveyUser(ctx context.Context, in *coreRp
 		return nil, status.Errorf(codes.Unauthenticated, sharedAuth.Error{Reason: sharedAuth.ErrRequestUnauthenticated, Err: err}.Error())
 	}
 	// allow superadmin to do anything
-	if sharedAuth.IsSuperadmin(curAcc.GetRoles()) || sharedAuth.AllowSelf(curAcc, requestMap[accountIdKey].(string)) {
+	allowSelf := sharedAuth.AllowSelf(curAcc, requestMap[accountIdKey].(string))
+	allowSupers := sharedAuth.IsSuperadmin(curAcc.GetRoles())
+	if allowSelf || allowSupers {
 		return map[string]interface{}{
 			"allowed": true,
 		}, nil
@@ -236,4 +239,39 @@ func (ad *SysAccountRepo) onCheckAllowSurveyUser(ctx context.Context, in *coreRp
 	return map[string]interface{}{
 		"allowed": false,
 	}, nil
+}
+
+// onJoinNewProject called whenever user joins a new project
+func (ad *SysAccountRepo) onJoinNewProject(ctx context.Context, in *coreRpc.EventRequest) (map[string]interface{}, error) {
+	const projectIdKey = "sys_account_project_id"
+	requestMap, err := coredb.UnmarshalToMap(in.JsonPayload)
+	if err != nil {
+		return nil, err
+	}
+	_, curAcc, err := ad.accountFromClaims(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.Unauthenticated, sharedAuth.Error{Reason: sharedAuth.ErrRequestUnauthenticated, Err: err}.Error())
+	}
+	// check project exist
+	proj, err := ad.store.GetProject(&coredb.QueryParams{Params: map[string]interface{}{"id": requestMap[projectIdKey].(string)}})
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range curAcc.GetRoles() {
+		if r.ProjectId == proj.Id {
+			return map[string]interface{}{"ok": true}, nil
+		}
+	}
+	if err = ad.store.InsertRole(&dao.Role{
+		ID:        utilities.NewID(),
+		AccountId: curAcc.Id,
+		Role:      int(rpc.Roles_USER),
+		ProjectId: proj.Id,
+		OrgId:     proj.OrgId,
+		CreatedAt: utilities.CurrentTimestamp(),
+		UpdatedAt: utilities.CurrentTimestamp(),
+	}); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"ok": true}, nil
 }

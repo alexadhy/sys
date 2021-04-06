@@ -72,5 +72,6 @@ func NewAuthRepo(l logging.Logger, db *coredb.CoreDB, cfg *service.SysAccountCon
 	bus.RegisterAction("onGetAccountEmail", repo.onGetAccountEmail)
 	bus.RegisterAction("onCheckAllowProject", repo.onCheckAllowProject)
 	bus.RegisterAction("onCheckAllowSurveyUser", repo.onCheckAllowSurveyUser)
+	bus.RegisterAction("onJoinNewProject", repo.onJoinNewProject)
 	return repo, nil
 }
