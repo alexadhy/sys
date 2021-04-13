@@ -3,15 +3,15 @@ package repo
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
-
 	sharedAuth "go.amplifyedge.org/sys-share-v2/sys-account/service/go/pkg/shared"
 	rpc "go.amplifyedge.org/sys-share-v2/sys-account/service/go/rpc/v2"
 	sharedConfig "go.amplifyedge.org/sys-share-v2/sys-core/service/config"
 	"go.amplifyedge.org/sys-v2/sys-account/service/go/pkg/dao"
 	coresvc "go.amplifyedge.org/sys-v2/sys-core/service/go/pkg/coredb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"sync"
 )
 
 func (ad *SysAccountRepo) NewOrg(ctx context.Context, in *rpc.OrgRequest) (*rpc.Org, error) {
@@ -109,6 +109,11 @@ func (ad *SysAccountRepo) ListOrg(ctx context.Context, in *rpc.ListRequest) (*rp
 	if in == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "cannot list org: %v", sharedAuth.Error{Reason: sharedAuth.ErrInvalidParameters})
 	}
+	var accRoles []*rpc.UserRoles
+	_, acc, _ := ad.accountFromClaims(ctx)
+	if acc != nil {
+		accRoles = acc.GetRoles()
+	}
 	var limit, cursor int64
 	limit = in.PerPageEntries
 	orderBy := in.OrderBy
@@ -137,7 +142,36 @@ func (ad *SysAccountRepo) ListOrg(ctx context.Context, in *rpc.ListRequest) (*rp
 		if err != nil {
 			return nil, err
 		}
-		pkgOrgs = append(pkgOrgs, pkgOrg)
+		var subbed []*rpc.Project
+		var wg sync.WaitGroup
+		if in.GetSubscribedOnly() {
+			ad.filterSubscribedOrgProj(
+				pkgOrg,
+				accRoles,
+				func(r *rpc.UserRoles, proj *rpc.Project) {
+					if r.GetProjectId() == proj.GetId() {
+						subbed = append(subbed, proj)
+					}
+				},
+				&wg,
+			)
+		} else {
+			ad.filterSubscribedOrgProj(
+				pkgOrg,
+				accRoles,
+				func(r *rpc.UserRoles, proj *rpc.Project) {
+					if r.GetProjectId() != proj.GetId() {
+						subbed = append(subbed, proj)
+					}
+				},
+				&wg,
+			)
+		}
+		wg.Wait()
+		pkgOrg.Projects = subbed
+		if len(pkgOrg.GetProjects()) > 0 {
+			pkgOrgs = append(pkgOrgs, pkgOrg)
+		}
 	}
 	return &rpc.ListResponse{
 		Orgs:       pkgOrgs,
@@ -145,44 +179,22 @@ func (ad *SysAccountRepo) ListOrg(ctx context.Context, in *rpc.ListRequest) (*rp
 	}, nil
 }
 
-func (ad *SysAccountRepo) ListNonSubscribedOrgs(ctx context.Context, in *rpc.ListRequest) (*rpc.ListResponse, error) {
-	if in == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "cannot list org: %v", sharedAuth.Error{Reason: sharedAuth.ErrInvalidParameters})
+// filter subscribed orgs and projects
+func (ad *SysAccountRepo) filterSubscribedOrgProj(
+	org *rpc.Org,
+	accRoles []*rpc.UserRoles,
+	filterFunc func(r *rpc.UserRoles, proj *rpc.Project),
+	wg *sync.WaitGroup,
+) {
+	for _, p := range org.GetProjects() {
+		wg.Add(1)
+		go func(proj *rpc.Project, o *rpc.Org) {
+			for _, r := range accRoles {
+				filterFunc(r, proj)
+			}
+			wg.Done()
+		}(p, org)
 	}
-	var limit, cursor int64
-	limit = in.PerPageEntries
-	orderBy := in.OrderBy
-	var err error
-	filtersJson := map[string]interface{}{}
-	if err = sharedConfig.UnmarshalJson(in.GetFilters(), &filtersJson); err != nil {
-		filtersJson = map[string]interface{}{}
-	}
-	filter := &coresvc.QueryParams{Params: filtersJson}
-	if in.IsDescending {
-		orderBy += " DESC"
-	} else {
-		orderBy += " ASC"
-	}
-	cursor, err = ad.getCursor(in.CurrentPageId)
-	if err != nil {
-		return nil, err
-	}
-	if limit == 0 {
-		limit = dao.DefaultLimit
-	}
-	orgs, next, err := ad.store.ListNonSubbed(in.AccountId, filter, orderBy, limit, cursor)
-	var pkgOrgs []*rpc.Org
-	for _, org := range orgs {
-		pkgOrg, err := ad.orgFetchProjects(org)
-		if err != nil {
-			return nil, err
-		}
-		pkgOrgs = append(pkgOrgs, pkgOrg)
-	}
-	return &rpc.ListResponse{
-		Orgs:       pkgOrgs,
-		NextPageId: fmt.Sprintf("%d", next),
-	}, nil
 }
 
 func (ad *SysAccountRepo) UpdateOrg(ctx context.Context, in *rpc.OrgUpdateRequest) (*rpc.Org, error) {
